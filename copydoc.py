@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import cssutils
 import re
 
 from bs4 import BeautifulSoup, element
@@ -21,6 +22,12 @@ except NameError:
 ATTR_WHITELIST = {
     'a': ['href'],
     'img': ['src', 'alt'],
+}
+
+STYLE_WHITELIST = {
+    'font-weight': ['700', 'bold'],
+    'font-style': ['italic'],
+    'text-decoration': ['underline']
 }
 
 
@@ -51,14 +58,33 @@ class CopyDoc:
         Constructor takes an HTML string and sets up object.
         """
         self.soup = BeautifulSoup(html_string, 'html.parser')
+        self.stylesheet = self.build_stylesheet()
         self.tags_blacklist = []
         self.tokens = tokens
         self.parse()
+
+    def build_stylesheet(self):
+        selectors = {}
+
+        styles = self.soup.select('style')
+        for style in styles:
+            css = cssutils.parseString(style.encode_contents())
+            for rule in css:
+                if rule.type == rule.STYLE_RULE:
+                    style = rule.selectorText
+                    selectors[style] = {}
+                    for item in rule.style:
+                        propertyname = item.name
+                        value = item.value
+                        selectors[style][propertyname] = value
+
+        return selectors
 
     def parse(self):
         """
         Run all parsing functions.
         """
+
         for tag in self.soup.findAll('span'):
             self.create_italic(tag)
             self.create_strong(tag)
@@ -111,26 +137,37 @@ class CopyDoc:
         """
         See if span tag has italic style and wrap with em tag.
         """
-        style = tag.get('style')
-        if style and 'font-style:italic' in style:
-            tag.wrap(self.soup.new_tag('em'))
+        classes = tag.get('class', [])
+        for class_name in classes:
+            styles = self.stylesheet['.{0}'.format(class_name)]
+
+            for key, value in styles.items():
+                if key == 'font-style' and value == 'italic':
+                    tag.wrap(self.soup.new_tag('em'))
 
     def create_strong(self, tag):
         """
         See if span tag has bold style and wrap with strong tag.
         """
-        style = tag.get('style')
-        if (style and
-                ('font-weight:bold' in style or 'font-weight:700' in style)):
-            tag.wrap(self.soup.new_tag('strong'))
+        classes = tag.get('class', [])
+        for class_name in classes:
+            styles = self.stylesheet['.{0}'.format(class_name)]
+
+            for key, value in styles.items():
+                if key == 'font-weight' and value in ['bold', '700']:
+                    tag.wrap(self.soup.new_tag('strong'))
 
     def create_underline(self, tag):
         """
         See if span tag has underline style and wrap with u tag.
         """
-        style = tag.get('style')
-        if style and 'text-decoration:underline' in style:
-            tag.wrap(self.soup.new_tag('u'))
+        classes = tag.get('class', [])
+        for class_name in classes:
+            styles = self.stylesheet['.{0}'.format(class_name)]
+
+            for key, value in styles.items():
+                if key == 'text-decoration' and value == 'underline':
+                    tag.wrap(self.soup.new_tag('u'))
 
     def unwrap_span(self, tag):
         """
